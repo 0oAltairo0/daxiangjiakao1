@@ -1,0 +1,8 @@
+# 题库更新中间产物
+work/
+__pycache__/
+*.pyc
+
+# 系统/编辑器杂项
+Thumbs.db
+.DS_Store

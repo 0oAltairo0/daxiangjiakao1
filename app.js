@@ -57,8 +57,128 @@
     });
   });
 
+  /* ---------------- 图片 ZIP（img.zip / opt/<包>/img.zip） ---------------- */
+  var ZIP_INDEX = {};   /* 小写文件名 → { zip, entry } */
+  var ZIP_CACHE = {};   /* 小写文件名 → blob URL */
+  var ZIP_WAIT = {};    /* 小写文件名 → true（解压中） */
+  var ZIP_STATE = { started: false, done: false, any: false };
+
+  function isImageName(name) {
+    return /\.(jpe?g|png|gif|webp|bmp)$/i.test(name);
+  }
+
+  function loadZipIndex(url) {
+    return fetch(url).then(function (res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.arrayBuffer();
+    }).then(function (buf) {
+      if (typeof JSZip === 'undefined') throw new Error('JSZip 未加载');
+      return JSZip.loadAsync(buf);
+    }).then(function (zip) {
+      var map = {};
+      zip.forEach(function (path, entry) {
+        if (entry.dir) return;
+        var name = path.split('/').pop();
+        if (!isImageName(name)) return;
+        map[name.toLowerCase()] = { zip: zip, entry: entry };
+      });
+      return map;
+    });
+  }
+
+  function ensureZips() {
+    if (ZIP_STATE.started) return;
+    ZIP_STATE.started = true;
+    if (typeof fetch !== 'function' || typeof JSZip === 'undefined') {
+      ZIP_STATE.done = true;
+      window.QUIZ_ZIP_DONE = true;
+      return;
+    }
+    var urls = ['img.zip'];
+    (window.QUIZ_DIFF_MANIFEST || []).forEach(function (pack) {
+      var dir = String(pack.dir || '');
+      if (dir.indexOf('opt/') !== 0) dir = 'opt/' + dir;
+      urls.push(dir + '/img.zip');
+    });
+    Promise.all(urls.map(function (u) {
+      return loadZipIndex(u).catch(function () { return null; });
+    })).then(function (maps) {
+      maps.forEach(function (map) {
+        if (!map) return;
+        ZIP_STATE.any = true;
+        Object.keys(map).forEach(function (k) { ZIP_INDEX[k] = map[k]; });
+      });
+      ZIP_STATE.done = true;
+      window.QUIZ_ZIP_DONE = true;
+      refreshZipImages();
+    });
+  }
+
+  function refreshZipImages() {
+    var list = document.querySelectorAll('img[data-zip]');
+    for (var i = 0; i < list.length; i++) {
+      var im = list[i];
+      var key = im.dataset.zip;
+      if (ZIP_CACHE[key]) {
+        im.src = ZIP_CACHE[key];
+      } else if (ZIP_INDEX[key]) {
+        zipImage(key);
+      } else if (ZIP_STATE.any && !(im.complete && im.naturalWidth > 0)) {
+        /* 文件夹里已经加载成功的图片不处理 */
+        removeZipImage(im);
+      }
+    }
+  }
+
+  function removeZipImage(im) {
+    var box = im.parentNode;
+    if (box && box.classList && box.classList.contains('imgbox')) box.remove();
+    else im.remove();
+  }
+
+  /* 图片加载失败时的兜底：ZIP 尚未就绪则等待，确认没有该图片才移除 */
+  window.__quizImgError = function (im) {
+    if (!im || !im.dataset) return;
+    var key = im.dataset.zip;
+    if (key && (ZIP_INDEX[key] || ZIP_CACHE[key])) {
+      zipImage(key);
+      return;
+    }
+    if (key && !ZIP_STATE.done) {
+      ensureZips();
+      return;
+    }
+    removeZipImage(im);
+  };
+
+  function zipImage(name) {
+    var key = String(name).toLowerCase();
+    if (ZIP_CACHE[key]) return ZIP_CACHE[key];
+    if (!ZIP_STATE.started) ensureZips();
+    if (ZIP_INDEX[key] && !ZIP_WAIT[key]) {
+      ZIP_WAIT[key] = true;
+      ZIP_INDEX[key].entry.async('blob').then(function (blob) {
+        ZIP_CACHE[key] = URL.createObjectURL(blob);
+        applyZipImage(key);
+      }).catch(function () { /* 解压失败时回退到文件夹路径 */ });
+    }
+    return '';
+  }
+
+  function applyZipImage(key) {
+    var url = ZIP_CACHE[key];
+    if (!url) return;
+    var list = document.querySelectorAll('img[data-zip]');
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].dataset.zip === key) list[i].src = url;
+    }
+  }
+
   function imgSrc(name) {
-    return DIFF_IMAGE[String(name).toLowerCase()] || ('img/' + encodeURIComponent(name));
+    var key = String(name).toLowerCase();
+    var zipUrl = zipImage(name);
+    if (zipUrl) return zipUrl;
+    return DIFF_IMAGE[key] || ('img/' + encodeURIComponent(name));
   }
 
   var QUESTIONS = DATA.questions;
@@ -715,10 +835,11 @@
       var box = document.createElement('div');
       box.className = 'imgbox';
       var im = document.createElement('img');
+      im.dataset.zip = String(file).toLowerCase();
       im.src = imgSrc(file);
       im.alt = '题目图片';
       im.className = 'zoomable';
-      im.onerror = function () { box.remove(); };
+      im.onerror = function () { window.__quizImgError(im); };
       im.addEventListener('click', function () { openLightbox(im.src); });
       box.appendChild(im);
       imgs.appendChild(box);
@@ -806,7 +927,8 @@
       }
       if (q.j) {
         rhtml += '<div class="analysis-block tip"><h4>技巧图示</h4>'
-          + '<img src="' + imgSrc(q.j) + '" alt="技巧图示" onerror="this.remove()"></div>';
+          + '<img src="' + imgSrc(q.j) + '" data-zip="' + escapeHtml(String(q.j).toLowerCase())
+          + '" alt="技巧图示" onerror="window.__quizImgError(this)"></div>';
       }
       box.innerHTML = rhtml;
       box.hidden = false;
@@ -1470,7 +1592,8 @@
       var thumbs = '';
       if (imgs.length) {
         thumbs = '<div class="si-thumbs">' + imgs.map(function (f) {
-          return '<img src="' + imgSrc(f) + '" alt="题目图片" onerror="this.remove()">';
+          return '<img src="' + imgSrc(f) + '" data-zip="' + escapeHtml(String(f).toLowerCase())
+            + '" alt="题目图片" onerror="window.__quizImgError(this)">';
         }).join('') + '</div>';
       }
 
