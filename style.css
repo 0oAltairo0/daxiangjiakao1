@@ -51,7 +51,7 @@ img { display: block; }
   min-height: 100vh;
   min-height: 100dvh;
   box-shadow: 0 0 32px rgba(18, 38, 63, .12);
-  overflow: hidden;
+  overflow: clip;
 }
 
 .screen { min-height: 100vh; min-height: 100dvh; }
@@ -69,6 +69,20 @@ img { display: block; }
 .home-title { font-size: 24px; font-weight: 600; letter-spacing: .3px; }
 .home-sub { margin-top: 6px; font-size: 12.5px; opacity: .82; }
 .home-topline { display: flex; align-items: flex-start; justify-content: space-between; }
+.home-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; padding-left: 8px; }
+.license-select {
+  height: 34px; max-width: 132px; padding: 0 24px 0 10px;
+  border-radius: 10px; border: 1px solid rgba(255,255,255,.26);
+  background-color: rgba(255,255,255,.16);
+  color: #fff; font-size: 12.5px; font-family: inherit;
+  -webkit-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' stroke='%23ffffff' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center; background-size: 10px 7px;
+  text-overflow: ellipsis;
+}
+.license-select:active { background-color: rgba(255,255,255,.28); }
+.license-select:focus { outline: none; border-color: rgba(255,255,255,.6); }
+.license-select option { color: #1E2430; background: #fff; }
 .home-gear {
   width: 34px; height: 34px; flex: 0 0 34px; margin-top: -2px;
   border-radius: 10px; background: rgba(255,255,255,.16);

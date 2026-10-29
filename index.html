@@ -19,9 +19,12 @@
             <div class="home-title">驾考做题器</div>
             <div class="home-sub">离线题库 · <span id="homeTotal">0</span> 题</div>
           </div>
-          <button class="home-gear" data-action="openSettings" aria-label="设置">
+          <div class="home-actions">
+            <select id="licenseSelect" class="license-select" aria-label="选择题库"></select>
+            <button class="home-gear" data-action="openSettings" aria-label="设置">
             <svg viewBox="0 0 24 24"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z" stroke="currentColor" stroke-width="1.9" fill="none"/><path d="M19.4 13.4a7.6 7.6 0 0 0 0-2.8l2-1.5-2-3.4-2.3 1a7.6 7.6 0 0 0-2.5-1.4L14.3 3h-3.9l-.4 2.3a7.6 7.6 0 0 0-2.5 1.4l-2.3-1-2 3.4 2 1.5a7.6 7.6 0 0 0 0 2.8l-2 1.5 2 3.4 2.3-1a7.6 7.6 0 0 0 2.5 1.4l.4 2.3h3.9l.4-2.3a7.6 7.6 0 0 0 2.5-1.4l2.3 1 2-3.4z" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linejoin="round"/></svg>
           </button>
+          </div>
         </div>
       </div>
       <nav class="subject-tabs" id="subjectTabs">
@@ -491,7 +494,6 @@
 
 <script src="data.js"></script>
 <script src="opt/manifest.js"></script>
-<script src="jszip.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

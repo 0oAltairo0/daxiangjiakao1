@@ -2,6 +2,7 @@
 work/
 __pycache__/
 *.pyc
+*.py
 
 # 系统/编辑器杂项
 Thumbs.db

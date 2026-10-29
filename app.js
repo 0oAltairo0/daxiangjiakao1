@@ -57,144 +57,78 @@
     });
   });
 
-  /* ---------------- 图片 ZIP（img.zip / opt/<包>/img.zip） ---------------- */
-  var ZIP_INDEX = {};   /* 小写文件名 → { zip, entry } */
-  var ZIP_CACHE = {};   /* 小写文件名 → blob URL */
-  var ZIP_WAIT = {};    /* 小写文件名 → true（解压中） */
-  var ZIP_STATE = { started: false, done: false, any: false };
-
-  function isImageName(name) {
-    return /\.(jpe?g|png|gif|webp|bmp)$/i.test(name);
+  function imgSrc(name) {
+    return DIFF_IMAGE[String(name).toLowerCase()] || ('img/' + encodeURIComponent(name));
   }
 
-  function loadZipIndex(url) {
-    return fetch(url).then(function (res) {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.arrayBuffer();
-    }).then(function (buf) {
-      if (typeof JSZip === 'undefined') throw new Error('JSZip 未加载');
-      return JSZip.loadAsync(buf);
-    }).then(function (zip) {
-      var map = {};
-      zip.forEach(function (path, entry) {
-        if (entry.dir) return;
-        var name = path.split('/').pop();
-        if (!isImageName(name)) return;
-        map[name.toLowerCase()] = { zip: zip, entry: entry };
-      });
-      return map;
-    });
-  }
-
-  function ensureZips() {
-    if (ZIP_STATE.started) return;
-    ZIP_STATE.started = true;
-    if (typeof fetch !== 'function' || typeof JSZip === 'undefined') {
-      ZIP_STATE.done = true;
-      window.QUIZ_ZIP_DONE = true;
-      return;
-    }
-    var urls = ['img.zip'];
-    (window.QUIZ_DIFF_MANIFEST || []).forEach(function (pack) {
-      var dir = String(pack.dir || '');
-      if (dir.indexOf('opt/') !== 0) dir = 'opt/' + dir;
-      urls.push(dir + '/img.zip');
-    });
-    Promise.all(urls.map(function (u) {
-      return loadZipIndex(u).catch(function () { return null; });
-    })).then(function (maps) {
-      maps.forEach(function (map) {
-        if (!map) return;
-        ZIP_STATE.any = true;
-        Object.keys(map).forEach(function (k) { ZIP_INDEX[k] = map[k]; });
-      });
-      ZIP_STATE.done = true;
-      window.QUIZ_ZIP_DONE = true;
-      refreshZipImages();
-    });
-  }
-
-  function refreshZipImages() {
-    var list = document.querySelectorAll('img[data-zip]');
-    for (var i = 0; i < list.length; i++) {
-      var im = list[i];
-      var key = im.dataset.zip;
-      if (ZIP_CACHE[key]) {
-        im.src = ZIP_CACHE[key];
-      } else if (ZIP_INDEX[key]) {
-        zipImage(key);
-      } else if (ZIP_STATE.any && !(im.complete && im.naturalWidth > 0)) {
-        /* 文件夹里已经加载成功的图片不处理 */
-        removeZipImage(im);
-      }
-    }
-  }
-
-  function removeZipImage(im) {
+  /* 图片加载失败时移除占位 */
+  window.__quizImgError = function (im) {
+    if (!im) return;
     var box = im.parentNode;
     if (box && box.classList && box.classList.contains('imgbox')) box.remove();
     else im.remove();
-  }
-
-  /* 图片加载失败时的兜底：ZIP 尚未就绪则等待，确认没有该图片才移除 */
-  window.__quizImgError = function (im) {
-    if (!im || !im.dataset) return;
-    var key = im.dataset.zip;
-    if (key && (ZIP_INDEX[key] || ZIP_CACHE[key])) {
-      zipImage(key);
-      return;
-    }
-    if (key && !ZIP_STATE.done) {
-      ensureZips();
-      return;
-    }
-    removeZipImage(im);
   };
 
-  function zipImage(name) {
-    var key = String(name).toLowerCase();
-    if (ZIP_CACHE[key]) return ZIP_CACHE[key];
-    if (!ZIP_STATE.started) ensureZips();
-    if (ZIP_INDEX[key] && !ZIP_WAIT[key]) {
-      ZIP_WAIT[key] = true;
-      ZIP_INDEX[key].entry.async('blob').then(function (blob) {
-        ZIP_CACHE[key] = URL.createObjectURL(blob);
-        applyZipImage(key);
-      }).catch(function () { /* 解压失败时回退到文件夹路径 */ });
-    }
-    return '';
-  }
-
-  function applyZipImage(key) {
-    var url = ZIP_CACHE[key];
-    if (!url) return;
-    var list = document.querySelectorAll('img[data-zip]');
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].dataset.zip === key) list[i].src = url;
-    }
-  }
-
-  function imgSrc(name) {
-    var key = String(name).toLowerCase();
-    var zipUrl = zipImage(name);
-    if (zipUrl) return zipUrl;
-    return DIFF_IMAGE[key] || ('img/' + encodeURIComponent(name));
-  }
-
-  var QUESTIONS = DATA.questions;
-  var CHAPTERS = DATA.chapters;
+  var ALL_QUESTIONS = DATA.questions;
+  var ALL_CHAPTERS = DATA.chapters;
+  var QUESTIONS = ALL_QUESTIONS;
+  var CHAPTERS = ALL_CHAPTERS;
   var QMAP = new Map();
-  QUESTIONS.forEach(function (q) { QMAP.set(q.i, q); });
-
   var BY_EXAM = { 1: [], 4: [] };
   var LIGHT = [];
-  QUESTIONS.forEach(function (q) {
-    if (q.x === 1 || q.x === 4) BY_EXAM[q.x].push(q);
-    if (q.c === 11) LIGHT.push(q);
-  });
-
   var CHAPTER_MAP = new Map();
-  CHAPTERS.forEach(function (c) { CHAPTER_MAP.set(c.id, c); });
+
+  /* 题库选择：按章节划分，顺序与选项固定（对应源库 bili 表的车型索引） */
+  var LICENSE_LIST = [
+    { key: 'A1', name: 'A1 大型客车', ids: [1, 2, 3, 4, 5, 6, 8, 10, 11, 301, 302, 303, 304, 305, 306, 307, 309] },
+    { key: 'B2', name: 'B2 大型货车', ids: [1, 2, 3, 4, 5, 6, 7, 10, 11, 301, 302, 303, 304, 305, 306, 307, 309, 310] },
+    { key: 'C1', name: 'C1 小型汽车', ids: [1, 2, 3, 4, 5, 6, 10, 11, 301, 302, 303, 304, 305, 306, 307, 309] },
+    { key: 'CC', name: 'CC 叉车', ids: [601, 602, 603, 604] },
+    { key: 'D', name: 'D 摩托车', ids: [9, 308] },
+    { key: 'HA', name: 'HA 客运', ids: [1, 2, 3, 4, 5, 8] },
+    { key: 'HB', name: 'HB 货运', ids: [1, 2, 3, 4, 5, 7] },
+    { key: 'HC', name: 'HC 危险品', ids: [1, 2, 3, 4, 5] },
+    { key: 'M1', name: 'M1 满分（小车）', ids: [1, 2, 3, 4, 5, 301, 302, 304, 305, 307] },
+    { key: 'M2', name: 'M2 满分（货车）', ids: [1, 2, 3, 4, 5, 7, 301, 302, 304, 305, 306, 307, 17] },
+    { key: 'M3', name: 'M3 满分（客车）', ids: [1, 2, 3, 4, 5, 8, 301, 302, 304, 305, 306, 307, 17] },
+    { key: 'W1', name: 'W1 无人机驾驶员', ids: [701, 702, 703, 704, 705, 706, 707, 708, 709, 710, 711, 712, 713, 714, 715, 716] },
+    { key: 'W2', name: 'W2 无人机机长', ids: [701, 702, 703, 704, 705, 706, 707, 708, 709, 710, 711, 712, 713, 714, 715, 716, 717] },
+    { key: 'ALL', name: '全部题库', ids: null }
+  ];
+
+  function licenseById(key) {
+    for (var i = 0; i < LICENSE_LIST.length; i++) {
+      if (LICENSE_LIST[i].key === key) return LICENSE_LIST[i];
+    }
+    return null;
+  }
+
+  /* 按当前题库重建题目与章节索引 */
+  function applyLicense() {
+    var def = licenseById(settings.license) || licenseById('C1');
+    var set = def.ids ? new Set(def.ids) : null;
+
+    QUESTIONS = set ? ALL_QUESTIONS.filter(function (q) { return set.has(q.c); }) : ALL_QUESTIONS;
+    CHAPTERS = set ? ALL_CHAPTERS.filter(function (c) { return set.has(c.id); }) : ALL_CHAPTERS;
+
+    QMAP = new Map();
+    BY_EXAM = { 1: [], 4: [] };
+    LIGHT = [];
+    QUESTIONS.forEach(function (q) {
+      QMAP.set(q.i, q);
+      if (q.x === 1 || q.x === 4) BY_EXAM[q.x].push(q);
+      if (q.c === 11) LIGHT.push(q);
+    });
+
+    CHAPTER_MAP = new Map();
+    CHAPTERS.forEach(function (c) { CHAPTER_MAP.set(c.id, c); });
+
+    /* 当前科目在该题库下没有题目时，自动切到有题目的科目 */
+    if (!BY_EXAM[exam].length) {
+      if (BY_EXAM[1].length) exam = 1;
+      else if (BY_EXAM[4].length) exam = 4;
+    }
+  }
 
   var LS_KEY = 'dx_quiz_state_v1';
 
@@ -235,6 +169,7 @@
     if (!isFinite(custom) || custom < 1) custom = 50;
     s.searchCustom = Math.min(custom, 9999);
     if (typeof s.showLoadRest !== 'boolean') s.showLoadRest = false;
+    if (!licenseById(s.license)) s.license = 'C1';
     return s;
   }
 
@@ -296,8 +231,14 @@
   /* ---------------- 首页 ---------------- */
   function examStat(ex) {
     var st = store[ex];
-    var right = new Set(st.right), wrong = new Set(st.wrong), collect = new Set(st.collect);
-    var done = new Set(st.right.concat(st.wrong));
+    var inScope = new Set(BY_EXAM[ex].map(function (q) { return q.i; }));
+    function scoped(list) {
+      return (list || []).filter(function (id) { return inScope.has(id); });
+    }
+    var right = new Set(scoped(st.right));
+    var wrong = new Set(scoped(st.wrong));
+    var collect = new Set(scoped(st.collect));
+    var done = new Set(scoped(st.right.concat(st.wrong)));
     return {
       right: right,
       wrong: wrong,
@@ -320,12 +261,38 @@
     $('wrongHint').textContent = st.wrong.size ? (st.wrong.size + ' 题待巩固') : '暂无错题';
     $('collectHint').textContent = st.collect.size ? (st.collect.size + ' 题已收藏') : '暂无收藏';
     $('chapterHint').textContent = CHAPTERS.filter(function (c) { return c.exam === exam; }).length + ' 个章节';
-    $('lightModeRow').hidden = exam !== 1;
+    $('lightModeRow').hidden = exam !== 1 || !LIGHT.length;
     document.querySelectorAll('.subject-tab').forEach(function (t) {
-      t.classList.toggle('active', Number(t.dataset.exam) === exam);
+      var ex = Number(t.dataset.exam);
+      t.hidden = !BY_EXAM[ex].length;
+      t.classList.toggle('active', ex === exam);
     });
     var hCount = pickHist.filter(function (r) { return r.exam === exam; }).length;
     $('historyHint').textContent = hCount ? (hCount + ' 条记录待继续') : '暂无练习记录';
+  }
+
+  /* ---------------- 题库选择 ---------------- */
+  function renderLicenseSelect() {
+    var sel = $('licenseSelect');
+    if (!sel) return;
+    if (!sel.options.length) {
+      LICENSE_LIST.forEach(function (item) {
+        var opt = document.createElement('option');
+        opt.value = item.key;
+        opt.textContent = item.name;
+        sel.appendChild(opt);
+      });
+    }
+    sel.value = settings.license;
+  }
+
+  function setLicense(key) {
+    if (!licenseById(key) || settings.license === key) return;
+    settings.license = key;
+    persistSettings();
+    applyLicense();
+    renderHome();
+    renderChapters();
   }
 
   function openHistoryScreen() {
@@ -835,7 +802,6 @@
       var box = document.createElement('div');
       box.className = 'imgbox';
       var im = document.createElement('img');
-      im.dataset.zip = String(file).toLowerCase();
       im.src = imgSrc(file);
       im.alt = '题目图片';
       im.className = 'zoomable';
@@ -927,8 +893,7 @@
       }
       if (q.j) {
         rhtml += '<div class="analysis-block tip"><h4>技巧图示</h4>'
-          + '<img src="' + imgSrc(q.j) + '" data-zip="' + escapeHtml(String(q.j).toLowerCase())
-          + '" alt="技巧图示" onerror="window.__quizImgError(this)"></div>';
+          + '<img src="' + imgSrc(q.j) + '" alt="技巧图示" onerror="window.__quizImgError(this)"></div>';
       }
       box.innerHTML = rhtml;
       box.hidden = false;
@@ -1434,7 +1399,7 @@
     shuffle(list);
     var chosen = list.slice(0, want);
     var rec = addHistoryRecord(picker.chapters.slice(), chosen);
-    startListPractice(chosen, rec.title, 'picker', 0, 'picked');
+    startListPractice(chosen, rec.title, 'home', 0, 'picked');
     session.historyId = rec.id;
   }
 
@@ -1592,7 +1557,7 @@
       var thumbs = '';
       if (imgs.length) {
         thumbs = '<div class="si-thumbs">' + imgs.map(function (f) {
-          return '<img src="' + imgSrc(f) + '" data-zip="' + escapeHtml(String(f).toLowerCase())
+          return '<img src="' + imgSrc(f)
             + '" alt="题目图片" onerror="window.__quizImgError(this)">';
         }).join('') + '</div>';
       }
@@ -2067,8 +2032,15 @@
     customLimitInput.addEventListener('blur', function () { setSearchCustom(this.value); });
   }
 
+  var licenseSelect = $('licenseSelect');
+  if (licenseSelect) {
+    licenseSelect.addEventListener('change', function () { setLicense(this.value); });
+  }
+
   /* ---------------- 启动 ---------------- */
   applyTheme();
+  applyLicense();
+  renderLicenseSelect();
   renderHome();
   renderChapters();
 })();
